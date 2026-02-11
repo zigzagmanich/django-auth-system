@@ -27,8 +27,6 @@
 
 ---
 
-## Быстрый старт
-
 ### 1. Установка
 ```bash
 # Виртуальное окружение
@@ -72,7 +70,7 @@ python populate_data.py
 python manage.py runserver
 ```
 
-Готово! → http://localhost:8000
+http://localhost:8000
 
 ---
 
@@ -107,7 +105,6 @@ POST /api/auth/login/
   "email": "ivan@example.com",
   "password": "pass123"
 }
-→ Вернёт токен!
 
 # Профиль
 GET    /api/auth/me/              # Просмотр
@@ -165,55 +162,449 @@ DELETE /api/orders/{id}/
 
 ## Примеры использования
 
-### Базовый flow
+### 1. Первый запуск и регистрация
 ```bash
-# 1. Вход
-curl -X POST http://localhost:8000/api/auth/login/ \
+# Зарегистрировать нового пользователя
+curl -X POST http://localhost:8000/api/auth/register/ \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"user123"}'
+  -d '{
+    "first_name": "Петр",
+    "last_name": "Петров",
+    "middle_name": "Петрович",
+    "email": "petr@example.com",
+    "password": "securepass123",
+    "password_confirm": "securepass123"
+  }'
 
 # Ответ:
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...", 
-  "user": {...}
+  "id": 5,
+  "email": "petr@example.com",
+  "first_name": "Петр",
+  "last_name": "Петров",
+  "middle_name": "Петрович",
+  "role": "user",
+  "is_active": true,
+  "created_at": "2026-02-11T12:00:00Z"
+}
+```
+
+### 2. Вход и сохранение токена
+```bash
+# Вход
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "petr@example.com",
+    "password": "securepass123"
+  }'
+
+# Ответ с токеном:
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 5,
+    "email": "petr@example.com",
+    "role": "user",
+    ...
+  },
+  "expires_at": "2026-02-12T12:00:00Z"
 }
 
-# 2. Используйте токен
-TOKEN="eyJhbGciOiJIUzI1NiIs..."
+# Сохраните токен в переменную для удобства
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
 
-# 3. Запросы с токеном
+### 3. Работа с профилем
+```bash
+# Просмотр своего профиля
 curl -X GET http://localhost:8000/api/auth/me/ \
   -H "Authorization: Bearer $TOKEN"
 
-curl -X GET http://localhost:8000/api/products/ \
-  -H "Authorization: Bearer $TOKEN"
+# Обновить имя
+curl -X PATCH http://localhost:8000/api/auth/me/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"first_name": "Пётр"}'
+
+# Полное обновление профиля
+curl -X PUT http://localhost:8000/api/auth/me/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "Пётр",
+    "last_name": "Петров-Водкин",
+    "middle_name": "Петрович"
+  }'
 ```
 
-### Admin: создать роль и правило
+### 4. User: Работа с товарами и заказами
+```bash
+# Просмотр всех товаров (user может видеть все)
+curl -X GET http://localhost:8000/api/products/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Ответ:
+{
+  "count": 5,
+  "results": [
+    {"id": 1, "name": "Ноутбук", "price": 50000, "owner_id": 2},
+    {"id": 2, "name": "Телефон", "price": 30000, "owner_id": 2},
+    ...
+  ]
+}
+
+# Создать заказ
+curl -X POST http://localhost:8000/api/orders/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": 1,
+    "quantity": 2
+  }'
+
+# Ответ:
+{
+  "id": 5,
+  "product_id": 1,
+  "quantity": 2,
+  "status": "pending",
+  "owner_id": 5
+}
+
+# Просмотр своих заказов (автоматическая фильтрация)
+curl -X GET http://localhost:8000/api/orders/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Обновить свой заказ
+curl -X PUT http://localhost:8000/api/orders/5/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "completed",
+    "quantity": 3
+  }'
+
+# Попытка изменить ЧУЖОЙ заказ (получим 403)
+curl -X PUT http://localhost:8000/api/orders/1/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "completed"}'
+
+# Ответ:
+{
+  "error": "Forbidden",
+  "detail": "Access denied - not owner"
+}
+```
+
+### 5. Manager: Управление товарами
+```bash
+# Вход как manager
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"manager@example.com","password":"manager123"}'
+
+MANAGER_TOKEN="полученный_токен"
+
+# Создать товар
+curl -X POST http://localhost:8000/api/products/ \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Монитор",
+    "price": 15000
+  }'
+
+# Изменить ЛЮБОЙ товар (manager имеет update_all)
+curl -X PUT http://localhost:8000/api/products/1/ \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ноутбук Pro",
+    "price": 75000
+  }'
+
+# Удалить товар
+curl -X DELETE http://localhost:8000/api/products/3/ \
+  -H "Authorization: Bearer $MANAGER_TOKEN"
+
+# Просмотр ВСЕХ заказов (manager видит все)
+curl -X GET http://localhost:8000/api/orders/ \
+  -H "Authorization: Bearer $MANAGER_TOKEN"
+```
+
+### 6. Guest: Ограниченный доступ
+```bash
+# Вход как guest
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"guest@example.com","password":"guest123"}'
+
+GUEST_TOKEN="полученный_токен"
+
+# Просмотр товаров (разрешено)
+curl -X GET http://localhost:8000/api/products/ \
+  -H "Authorization: Bearer $GUEST_TOKEN"
+
+# Попытка создать товар (403)
+curl -X POST http://localhost:8000/api/products/ \
+  -H "Authorization: Bearer $GUEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Мышка", "price": 500}'
+
+# Ответ:
+{
+  "error": "Forbidden",
+  "detail": "Access denied"
+}
+
+# Попытка посмотреть заказы (403)
+curl -X GET http://localhost:8000/api/orders/ \
+  -H "Authorization: Bearer $GUEST_TOKEN"
+
+# Ответ:
+{
+  "error": "Forbidden",
+  "detail": "No access rule for role \"guest\" and element \"orders\""
+}
+```
+
+### 7. Admin: Управление системой прав
 ```bash
 # Вход как admin
 curl -X POST http://localhost:8000/api/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"admin123"}'
 
-ADMIN_TOKEN="..."
+ADMIN_TOKEN="полученный_токен"
 
-# Создать роль
+# Просмотр всех ролей
+curl -X GET http://localhost:8000/api/admin/roles/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Создать новую роль
 curl -X POST http://localhost:8000/api/admin/roles/ \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"support","description":"Поддержка"}'
+  -d '{
+    "name": "support",
+    "description": "Служба поддержки клиентов"
+  }'
 
-# Создать правило доступа
+# Ответ:
+{
+  "id": 5,
+  "name": "support",
+  "description": "Служба поддержки клиентов",
+  "created_at": "2026-02-11T12:00:00Z"
+}
+
+# Создать новый бизнес-элемент
+curl -X POST http://localhost:8000/api/admin/business-elements/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "tickets",
+    "description": "Тикеты поддержки",
+    "endpoint": "/api/tickets/"
+  }'
+
+# Просмотр всех правил доступа
+curl -X GET http://localhost:8000/api/admin/access-rules/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Создать правило: support может читать все заказы
 curl -X POST http://localhost:8000/api/admin/access-rules/ \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "role": 5,
-    "element": 2,
+    "element": 3,
+    "read_permission": false,
     "read_all_permission": true,
-    "create_permission": false
+    "create_permission": false,
+    "update_permission": false,
+    "update_all_permission": false,
+    "delete_permission": false,
+    "delete_all_permission": false
   }'
+
+# Фильтрация правил по роли
+curl -X GET "http://localhost:8000/api/admin/access-rules/?role_id=3" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Фильтрация по элементу
+curl -X GET "http://localhost:8000/api/admin/access-rules/?element_id=2" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Обновить правило (дать guest права на создание заказов)
+curl -X PATCH http://localhost:8000/api/admin/access-rules/12/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "read_permission": true,
+    "create_permission": true
+  }'
+
+# Просмотр правил конкретной роли
+curl -X GET http://localhost:8000/api/admin/roles/3/access-rules/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Удалить правило
+curl -X DELETE http://localhost:8000/api/admin/access-rules/15/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+### 8. Сценарий: Изменение прав
+```bash
+# Admin дает user права на создание товаров
+
+# 1. Найти правило user -> products
+curl -X GET "http://localhost:8000/api/admin/access-rules/?role_id=3&element_id=2" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Ответ покажет ID правила, например: "id": 10
+
+# 2. Обновить правило
+curl -X PATCH http://localhost:8000/api/admin/access-rules/10/ \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"create_permission": true}'
+
+# 3. Теперь user может создавать товары!
+curl -X POST http://localhost:8000/api/products/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Мышка Gaming",
+    "price": 3500
+  }'
+
+# Успех! (раньше было бы 403)
+```
+
+### 9. Выход и удаление аккаунта
+```bash
+# Выход (удаление сессии)
+curl -X POST http://localhost:8000/api/auth/logout/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Попытка использовать токен после выхода
+curl -X GET http://localhost:8000/api/auth/me/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Ответ:
+{
+  "error": "Authentication required",
+  "detail": "Invalid or expired token"
+}
+
+# Мягкое удаление аккаунта (is_active=False)
+curl -X DELETE http://localhost:8000/api/auth/me/delete/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Попытка войти с удаленным аккаунтом
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"petr@example.com","password":"securepass123"}'
+
+# Ответ:
+{
+  "non_field_errors": ["Аккаунт деактивирован"]
+}
+```
+
+### 10. Обработка ошибок
+```bash
+# Неверный пароль (401)
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"wrong"}'
+
+# Ответ:
+{
+  "non_field_errors": ["Неверный email или пароль"]
+}
+
+# Пароли не совпадают при регистрации (400)
+curl -X POST http://localhost:8000/api/auth/register/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "Test",
+    "last_name": "User",
+    "email": "test@test.com",
+    "password": "pass123",
+    "password_confirm": "different"
+  }'
+
+# Ответ:
+{
+  "password_confirm": ["Пароли не совпадают"]
+}
+
+# Email уже существует (400)
+curl -X POST http://localhost:8000/api/auth/register/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "Test",
+    "last_name": "User",
+    "email": "user@example.com",
+    "password": "pass123",
+    "password_confirm": "pass123"
+  }'
+
+# Ответ:
+{
+  "email": ["Пользователь с таким email уже существует"]
+}
+
+# Запрос без токена (401)
+curl -X GET http://localhost:8000/api/orders/
+
+# Ответ:
+{
+  "error": "Authentication required",
+  "detail": "No valid token provided"
+}
+
+# Недостаточно прав (403)
+curl -X DELETE http://localhost:8000/api/products/1/ \
+  -H "Authorization: Bearer $USER_TOKEN"
+
+# Ответ:
+{
+  "error": "Forbidden",
+  "detail": "Access denied"
+}
+
+# Объект не найден (404)
+curl -X GET http://localhost:8000/api/products/999/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Ответ:
+{
+  "error": "Product not found"
+}
+```
+
+### 11. Пакетные операции
+```bash
+# Создать несколько заказов подряд
+for i in {1..3}; do
+  curl -X POST http://localhost:8000/api/orders/ \
+    -H "Authorization: Bearer $USER_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"product_id\": $i, \"quantity\": 1}"
+done
+
+# Получить статистику по правам всех ролей
+for role_id in {1..4}; do
+  echo "=== Роль ID: $role_id ==="
+  curl -s -X GET "http://localhost:8000/api/admin/access-rules/?role_id=$role_id" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    | python3 -m json.tool
+done
 ```
 
 ---
@@ -279,7 +670,7 @@ access_rules → business_elements
 | `delete_permission` | Удалять свои |
 | `delete_all_permission` | Удалять все |
 
-### Матрица прав (по умолчанию)
+### Матрица прав
 
 **Товары:**
 
@@ -299,29 +690,19 @@ access_rules → business_elements
 | user | Свои | ✅ | Свои | Свои |
 | guest | ❌ | ❌ | ❌ | ❌ |
 
-### Как работает
-```
-1. Пользователь → Запрос → Middleware извлекает токен
-2. Проверяет сессию в БД → Получает user
-3. Декоратор @require_permission проверяет права в access_rules
-4. Если read_all=False, но read=True → фильтрует по owner_id
-5. Если update_all=False → проверяет владельца объекта
-6. Возвращает данные или 403 Forbidden
-```
-
 ---
 
 ## Архитектура
 ```
 CLIENT (Authorization: Bearer TOKEN)
     ↓
-CustomAuthMiddleware (извлекает токен, проверяет сессию)
+CustomAuthMiddleware
     ↓
 @require_permission (проверяет права в access_rules)
     ↓
-View (фильтрует по owner если нужно)
+View
     ↓
-Response (данные или 401/403)
+Response
 ```
 
 ---
@@ -339,76 +720,3 @@ Response (данные или 401/403)
 | 404 | Не найдено |
 
 ---
-
-## Структура проекта
-```
-auth_system/
-├── README.md
-├── manage.py
-├── requirements.txt
-├── .env
-├── initial_data.json
-├── populate_data.py
-│
-├── config/              # Настройки Django
-├── authentication/      # Вход, регистрация, профиль
-├── authorization/       # Роли, права, Admin API
-└── mock_business/       # Товары, заказы (mock данные)
-```
-
----
-
-## Технологии
-
-- Python 3.11+
-- Django 4.2.7
-- Django REST Framework 3.14.0
-- PostgreSQL
-- JWT (PyJWT 2.8.0)
-- Bcrypt 4.1.1
-
----
-
-## Production
-
-Для боевого сервера:
-```python
-# settings.py
-DEBUG = False
-ALLOWED_HOSTS = ['your-domain.com']
-SECURE_SSL_REDIRECT = True
-```
-```bash
-# Используйте gunicorn
-pip install gunicorn
-gunicorn config.wsgi:application
-```
-
----
-
-## Особенности реализации
-
-- **Нет таблиц для товаров/заказов** - используются Mock данные в памяти
-- **Система прав применяется** к Mock-объектам через декораторы
-- **JWT хранятся в БД** - можно отозвать токен удалив сессию
-- **Middleware работает со всеми запросами** - проверка токена автоматическая
-- **Admin API защищён** - доступ только для роли admin
-
----
-
-## Что можно улучшить
-
-- Refresh токены
-- Rate limiting
-- Двухфакторная аутентификация
-- Логирование действий
-- Реальные таблицы вместо Mock данных
-- Unit тесты
-- Docker
-- CI/CD
-
----
-
-**Готово!** Проект полностью функционален и задокументирован.
-
-Создано в учебных целях.
