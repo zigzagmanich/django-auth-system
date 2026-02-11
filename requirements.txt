@@ -1,0 +1,5 @@
+Django==6.0.2
+djangorestframework==3.16.1
+PyJWT==2.11.0
+python-dotenv==1.2.1
+python_bcrypt==0.3.2
