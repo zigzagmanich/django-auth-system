@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 ### 2. PostgreSQL
 ```bash
-psql -U postgres
+psql postgres
 
 CREATE DATABASE auth_system_db;
 CREATE USER auth_user WITH PASSWORD 'your_password';
@@ -600,7 +600,7 @@ done
 
 # Получить статистику по правам всех ролей
 for role_id in {1..4}; do
-  echo "=== Роль ID: $role_id ==="
+  echo "Роль ID: $role_id"
   curl -s -X GET "http://localhost:8000/api/admin/access-rules/?role_id=$role_id" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     | python3 -m json.tool
